@@ -1,5 +1,5 @@
 version = 1
-revision = 1
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -1535,6 +1535,11 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+studio = [
+    { name = "pillow" },
+    { name = "pydantic" },
+    { name = "streamlit" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1568,6 +1573,11 @@ dev = [
     { name = "coverage", specifier = "==7.15.1" },
     { name = "pytest", specifier = "==9.1.1" },
     { name = "ruff", specifier = "==0.15.21" },
+]
+studio = [
+    { name = "pillow", specifier = ">=10.4,<12" },
+    { name = "pydantic", specifier = ">=2.7,<3" },
+    { name = "streamlit", specifier = "==1.59.1" },
 ]
 
 [[package]]

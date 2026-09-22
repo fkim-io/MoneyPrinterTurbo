@@ -1,0 +1,29 @@
+{
+  "title": "your words, your voice",
+  "creative_id": "slapz-voice-001",
+  "format": "slideshow",
+  "size": "portrait",
+  "scenes": [
+    {
+      "headline": "your words.\nyour voice.",
+      "body": "start with a beat. make it yours.",
+      "layout": "boxed",
+      "source_kind": "color",
+      "duration": 4
+    },
+    {
+      "headline": "describe the beat.",
+      "body": "give your idea somewhere to start.",
+      "layout": "paragraph",
+      "source_kind": "color",
+      "duration": 4
+    },
+    {
+      "headline": "record your take.",
+      "body": "the voice on the record is yours.",
+      "layout": "top",
+      "source_kind": "color",
+      "duration": 4
+    }
+  ]
+}

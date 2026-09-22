@@ -1,0 +1,242 @@
+{
+  "as_of": "2026-09-22",
+  "notice": "Curated API input subsets, not price or output-quality guarantees. Review current provider pricing and rights before each paid experiment. Caller-declared spending reservations are not provider-enforced invoice limits.",
+  "models": [
+    {
+      "id": "google/veo-3.1",
+      "name": "Veo 3.1",
+      "role": "broll",
+      "description": "Short generated scenes with native audio. Use real recordings for exact app UI.",
+      "source_url": "https://replicate.com/google/veo-3.1/readme",
+      "provenance": "Provider documents SynthID on all generated videos; no blanket visible-watermark guarantee.",
+      "example_inputs": {
+        "prompt": "A person relaxing in a sunny cafe, natural handheld footage",
+        "duration": 4,
+        "aspect_ratio": "9:16",
+        "resolution": "720p"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "duration": {
+            "type": "integer",
+            "enum": [
+              4,
+              6,
+              8
+            ]
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "9:16",
+              "16:9"
+            ]
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "720p",
+              "1080p"
+            ]
+          },
+          "image": {
+            "type": "string",
+            "format": "https-url"
+          }
+        }
+      },
+      "schema_url": "https://replicate.com/google/veo-3.1/api/schema"
+    },
+    {
+      "id": "heygen/avatar-iv",
+      "name": "HeyGen Avatar IV",
+      "role": "presenter",
+      "description": "An existing avatar speaks a script. Requires valid avatar and voice IDs; arbitrary photo upload is not mapped by this adapter.",
+      "source_url": "https://replicate.com/heygen/avatar-iv/readme",
+      "provenance": "No Replicate-endpoint watermark guarantee verified. Use avatars and voices you are authorized to use.",
+      "example_inputs": {
+        "avatar_id": "REPLACE_WITH_VALID_AVATAR_ID",
+        "voice_id": "REPLACE_WITH_VALID_VOICE_ID",
+        "input_text": "Here is a quick look at the app.",
+        "width": 1080,
+        "height": 1920,
+        "caption": false
+      },
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "avatar_id",
+          "voice_id",
+          "input_text"
+        ],
+        "properties": {
+          "avatar_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "voice_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "input_text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4999
+          },
+          "avatar_style": {
+            "type": "string",
+            "enum": [
+              "normal",
+              "closeUp",
+              "circle"
+            ]
+          },
+          "voice_speed": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 1.5
+          },
+          "voice_emotion": {
+            "type": "string",
+            "enum": [
+              "none",
+              "Excited",
+              "Friendly",
+              "Serious",
+              "Soothing",
+              "Broadcaster"
+            ]
+          },
+          "caption": {
+            "type": "boolean"
+          },
+          "width": {
+            "type": "integer",
+            "minimum": 128,
+            "maximum": 1920
+          },
+          "height": {
+            "type": "integer",
+            "minimum": 128,
+            "maximum": 1920
+          }
+        }
+      },
+      "schema_url": "https://replicate.com/heygen/avatar-iv/api/schema"
+    },
+    {
+      "id": "minimax/speech-02-hd",
+      "name": "MiniMax Speech-02-HD",
+      "role": "voice",
+      "description": "Narration from text. Timing for captions is a separate step. Model data is forwarded to MiniMax.",
+      "source_url": "https://replicate.com/minimax/speech-02-hd/readme",
+      "provenance": "No model-specific audio watermark guarantee verified.",
+      "example_inputs": {
+        "text": "Here is a quick look at the app.",
+        "voice_id": "English_Trustworth_Man"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "text",
+          "voice_id"
+        ],
+        "properties": {
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 5000
+          },
+          "voice_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "speed": {
+            "type": "number",
+            "minimum": 0.5,
+            "maximum": 2.0
+          },
+          "pitch": {
+            "type": "integer",
+            "minimum": -12,
+            "maximum": 12
+          },
+          "volume": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 10
+          }
+        }
+      },
+      "schema_url": "https://replicate.com/minimax/speech-02-hd/api/schema"
+    },
+    {
+      "id": "black-forest-labs/flux-schnell",
+      "name": "FLUX.1 schnell",
+      "role": "image",
+      "description": "Generate still images for optional creative backgrounds. Does not reproduce app screens reliably.",
+      "source_url": "https://replicate.com/black-forest-labs/flux-schnell",
+      "provenance": "No model-specific watermark guarantee verified. Review model and asset rights separately.",
+      "example_inputs": {
+        "prompt": "A bright minimal desk with a plant, no text",
+        "aspect_ratio": "9:16",
+        "num_outputs": 1,
+        "output_format": "png"
+      },
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "1:1",
+              "9:16",
+              "16:9",
+              "4:3",
+              "3:4"
+            ]
+          },
+          "num_outputs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "png",
+              "jpg",
+              "webp"
+            ]
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647
+          }
+        }
+      },
+      "schema_url": "https://replicate.com/black-forest-labs/flux-schnell/api/schema"
+    }
+  ]
+}

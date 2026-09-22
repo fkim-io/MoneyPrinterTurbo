@@ -45,6 +45,13 @@ twelvelabs = [
 ]
 
 [dependency-groups]
+# Run the local Slapz composition tools without installing optional cloud speech
+# SDKs or transcription models used by the upstream all-provider interface.
+studio = [
+    "pillow>=10.4,<12",
+    "pydantic>=2.7,<3",
+    "streamlit==1.59.1",
+]
 dev = [
     "coverage==7.15.1",
     "pytest==9.1.1",
@@ -54,6 +61,7 @@ dev = [
 [tool.ruff.lint.per-file-ignores]
 # WebUI 需要先把项目根目录加入 sys.path，随后才能导入 app 包。
 "webui/Main.py" = ["E402"]
+"webui/pages/1_Slapz_Studio.py" = ["E402"]
 
 [tool.coverage.run]
 # 统计分支覆盖率可以识别“代码行执行了，但条件的另一条分支从未验证”的情况，
