@@ -331,6 +331,17 @@ def _green_screen(image: Image.Image) -> tuple[Image.Image, list[tuple[float, fl
     return soft, [(float(x), float(y)) for x, y in corners]
 
 
+def _despill(canvas: Image.Image, mask: Image.Image, reach: int) -> None:
+    """Remove green light a chroma screen casts on nearby fingers and bezel: green never exceeds red or blue there."""
+    band = np.asarray(mask.filter(ImageFilter.MaxFilter(reach * 2 + 1))) > 0
+    pixels = np.asarray(canvas).copy()
+    rgb = pixels[..., :3].astype(np.int16)
+    limit = np.maximum(rgb[..., 0], rgb[..., 2])
+    spill = band & (rgb[..., 1] > limit)
+    pixels[..., 1] = np.where(spill, limit, rgb[..., 1]).astype(np.uint8)
+    canvas.paste(Image.fromarray(pixels, canvas.mode))
+
+
 def _perspective(screen: Image.Image, corners: list[tuple[float, float]], size: tuple[int, int]) -> Image.Image:
     source = [(0, 0), (screen.width, 0), (screen.width, screen.height), (0, screen.height)]
     rows, values = [], []
@@ -380,6 +391,7 @@ def _still(scene: StudioScene, dimensions: tuple[int, int], source: Path | None,
             placed = Image.new("L", dimensions, 0)
             placed.paste(mask, offset)
             canvas.paste(warped, (0, 0), ImageChops.multiply(placed, warped.getchannel("A")))
+            _despill(canvas, placed, max(4, round(dimensions[0] * 0.07)))
         else:
             phone, position = _drawn_phone(screen, dimensions)
             canvas.alpha_composite(phone, position)

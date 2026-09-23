@@ -277,6 +277,7 @@ def test_phone_screen_is_warped_into_a_green_screen_and_leaves_no_green(tmp_path
     base = Image.new("RGB", (180, 320), (90, 70, 60))
     from PIL import ImageDraw
     ImageDraw.Draw(base).polygon([(60, 90), (125, 100), (118, 230), (52, 220)], fill=(0, 255, 0))
+    ImageDraw.Draw(base).rectangle((126, 150, 134, 170), fill=(90, 160, 60))  # a finger lit by the screen
     base.save(photo)
     screen = tmp_path / "screen.png"
     Image.new("RGB", (120, 260), (0, 0, 255)).save(screen)
@@ -286,6 +287,8 @@ def test_phone_screen_is_warped_into_a_green_screen_and_leaves_no_green(tmp_path
         assert rgb.getpixel((88, 160))[2] > 200  # centre of the quad now shows the screenshot
         assert rgb.getpixel((20, 20))[0] > 70  # photo outside the screen untouched
         assert not any(g > 150 and g > r + 60 and g > b + 60 for r, g, b in rgb.getdata())
+        red, green, blue = rgb.getpixel((130, 160))
+        assert green <= max(red, blue) + 4  # spill on the finger removed, JPEG tolerance
 
 
 def test_phone_screen_is_local_and_only_for_still_scenes(tmp_path):
