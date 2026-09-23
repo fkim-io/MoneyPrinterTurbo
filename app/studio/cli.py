@@ -29,8 +29,9 @@ def load_project(path: str) -> dict:
         return str((directory / Path(value).expanduser()).resolve())
 
     for scene in scenes:
-        if scene.get("source"):
-            scene["source"] = local_path(scene["source"])
+        for key in ("source", "phone_screen"):
+            if scene.get(key):
+                scene[key] = local_path(scene[key])
     for key in ("narration_file", "music_file"):
         if project.get(key):
             project[key] = local_path(project[key])

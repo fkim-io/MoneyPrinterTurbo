@@ -16,7 +16,8 @@ import subprocess
 import tempfile
 import zipfile
 
-from PIL import Image, ImageDraw, ImageFont, ImageOps, UnidentifiedImageError
+import numpy as np
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps, UnidentifiedImageError
 
 from .models import SIZE_DIMENSIONS, StudioProject, StudioScene
 
@@ -169,11 +170,70 @@ def _line_metrics(lines: list[str], font: ImageFont.FreeTypeFont) -> tuple[int, 
     return step, (len(lines) - 1) * step + ink_height
 
 
+def _balanced_wrap(text: str, font: ImageFont.FreeTypeFont, width: int) -> list[str]:
+    """Wrap to the fewest lines, then narrow the measure until one more pixel would add a line, so no word is left alone."""
+    lines = _wrap(text, font, width)
+    low, high = max(1, width // 3), width
+    while low < high:
+        middle = (low + high) // 2
+        try:
+            fits = len(_wrap(text, font, middle)) <= len(lines)
+        except TextOverflowError:
+            fits = False
+        low, high = (low, middle) if fits else (middle + 1, high)
+    return _wrap(text, font, low)
+
+
+def _native_overlay(scene: StudioScene, dimensions: tuple[int, int], fonts: tuple[Path, Path]) -> Image.Image:
+    """TikTok's own text-tool look: black text on white rounded boxes that hug each line.
+
+    Kept inside the photo-mode safe zone: clear of the top tabs, the bottom caption and
+    the right-hand action rail, so the post reads like a person typed it in the app.
+    """
+    width, height = dimensions
+    overlay = Image.new("RGBA", dimensions, (0, 0, 0, 0))
+    safe_left, safe_right = round(width * 0.07), round(width * 0.85)
+    safe_top, safe_bottom = round(height * 0.13), round(height * 0.78)
+    pad_x = max(3, round(width * 0.022))
+    pad_y = max(2, round(width * 0.012))
+    available_width = safe_right - safe_left - 2 * pad_x
+    max_height = safe_bottom - safe_top
+    fitted = None
+    for size in range(max(9, round(width * 0.056)), max(8, round(width * 0.034)) - 1, -1):
+        title_font = ImageFont.truetype(str(fonts[1]), size)
+        body_font = ImageFont.truetype(str(fonts[1]), max(8, round(size * 0.82)))
+        blocks = [(line, font) for text, font in ((scene.headline, title_font), (scene.body, body_font)) for line in _balanced_wrap(text, font, available_width)]
+        rows = [(line, font, font.getbbox(line or "Ag", anchor="lt")) for line, font in blocks]
+        row_height = [max(font.getbbox("Ag", anchor="lt")[3], bounds[3]) + 2 * pad_y for _, font, bounds in rows]
+        total = sum(row_height)
+        if total <= max_height and all(bounds[2] - bounds[0] <= available_width for _, _, bounds in rows):
+            fitted = (rows, row_height, total)
+            break
+    if fitted is None:
+        raise TextOverflowError("Text does not fit at the minimum readable font size; shorten it or split it into more scenes")
+    rows, row_height, total = fitted
+    y = safe_top if scene.text_position == "top" else safe_bottom - total if scene.text_position == "bottom" else safe_top + (max_height - total) // 2
+    center = (safe_left + safe_right) / 2
+    draw = ImageDraw.Draw(overlay)
+    radius = max(3, round(width * 0.014))
+    for (line, font, bounds), line_height in zip(rows, row_height):
+        if line:
+            ink = bounds[2] - bounds[0]
+            left = round(center - ink / 2 - pad_x)
+            # Rows touch, as in the app; the one-pixel overlap stops a seam between boxes.
+            draw.rounded_rectangle((left, y, left + ink + 2 * pad_x, y + line_height + 1), radius=radius, fill=(255, 255, 255, 255))
+            draw.text((left + pad_x - bounds[0], y + pad_y), line, font=font, fill=(0, 0, 0, 255), anchor="lt")
+        y += line_height
+    return overlay
+
+
 def _text_overlay(scene: StudioScene, dimensions: tuple[int, int], fonts: tuple[Path, Path], *, reserve_captions: bool = False) -> Image.Image:
     width, height = dimensions
     overlay = Image.new("RGBA", dimensions, (0, 0, 0, 0))
     if not scene.headline and not scene.body:
         return overlay
+    if scene.layout == "native":
+        return _native_overlay(scene, dimensions, fonts)
     margin = max(6, round(width * 0.06))
     pad = max(4, round(width * 0.035))
     available_width = width - 2 * (margin + pad)
@@ -252,11 +312,77 @@ def _caption_overlay(text: str, dimensions: tuple[int, int], font_path: Path) ->
     raise TextOverflowError("Caption does not fit at the minimum readable font size; shorten it or split it into more cues")
 
 
+def _green_screen(image: Image.Image) -> tuple[Image.Image, list[tuple[float, float]]] | None:
+    """Find a chroma-green phone screen: its mask and corners (top-left, top-right, bottom-right, bottom-left)."""
+    pixels = np.asarray(image.convert("RGB"), dtype=np.int16)
+    red, green, blue = pixels[..., 0], pixels[..., 1], pixels[..., 2]
+    mask = (green > 120) & (green > red + 60) & (green > blue + 60)
+    if mask.sum() < image.width * image.height * 0.01:
+        return None
+    ys, xs = np.nonzero(mask)
+    corners = [
+        (xs[np.argmin(xs + ys)], ys[np.argmin(xs + ys)]),
+        (xs[np.argmax(xs - ys)], ys[np.argmax(xs - ys)]),
+        (xs[np.argmax(xs + ys)], ys[np.argmax(xs + ys)]),
+        (xs[np.argmin(xs - ys)], ys[np.argmin(xs - ys)]),
+    ]
+    # Grow the mask slightly so green fringe at the bezel edge is covered too.
+    soft = Image.fromarray((mask * 255).astype(np.uint8)).filter(ImageFilter.MaxFilter(5))
+    return soft, [(float(x), float(y)) for x, y in corners]
+
+
+def _perspective(screen: Image.Image, corners: list[tuple[float, float]], size: tuple[int, int]) -> Image.Image:
+    source = [(0, 0), (screen.width, 0), (screen.width, screen.height), (0, screen.height)]
+    rows, values = [], []
+    # Solve for the output-to-input mapping Pillow's PERSPECTIVE transform expects.
+    for (x, y), (u, v) in zip(corners, source):
+        rows.append([x, y, 1, 0, 0, 0, -u * x, -u * y])
+        rows.append([0, 0, 0, x, y, 1, -v * x, -v * y])
+        values += [u, v]
+    coefficients = np.linalg.solve(np.array(rows, dtype=float), np.array(values, dtype=float))
+    return screen.convert("RGBA").transform(size, Image.Transform.PERSPECTIVE, tuple(coefficients), Image.Resampling.BICUBIC)
+
+
+def _drawn_phone(screen: Image.Image, dimensions: tuple[int, int]) -> tuple[Image.Image, tuple[int, int]]:
+    """A plain phone, bezel and shadow, for photos without a green screen."""
+    width, height = dimensions
+    phone_height = round(height * 0.5)
+    screen = ImageOps.fit(screen.convert("RGBA"), (round(phone_height * screen.width / screen.height), phone_height), Image.Resampling.LANCZOS)
+    bezel = max(3, round(width * 0.016))
+    radius = round(screen.width * 0.13)
+    layer = Image.new("RGBA", (screen.width + 2 * bezel, screen.height + 2 * bezel), (0, 0, 0, 0))
+    ImageDraw.Draw(layer).rounded_rectangle((0, 0, layer.width - 1, layer.height - 1), radius=radius + bezel, fill=(12, 12, 14, 255))
+    rounded = Image.new("L", screen.size, 0)
+    ImageDraw.Draw(rounded).rounded_rectangle((0, 0, screen.width - 1, screen.height - 1), radius=radius, fill=255)
+    layer.paste(screen, (bezel, bezel), rounded)
+    shadow = Image.new("RGBA", (layer.width + 8 * bezel, layer.height + 8 * bezel), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((4 * bezel, 5 * bezel, 4 * bezel + layer.width, 5 * bezel + layer.height), radius=radius + bezel, fill=(0, 0, 0, 110))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(2 * bezel))
+    shadow.alpha_composite(layer, (4 * bezel, 4 * bezel))
+    return shadow, ((width - shadow.width) // 2, round(height * 0.62) - shadow.height // 2)
+
+
 def _still(scene: StudioScene, dimensions: tuple[int, int], source: Path | None, overlay: Image.Image) -> Image.Image:
     canvas = Image.new("RGBA", dimensions, BACKGROUND)
     if source:
         image = ImageOps.contain(_open_image(source), dimensions, Image.Resampling.LANCZOS)
-        canvas.alpha_composite(image, ((dimensions[0] - image.width) // 2, (dimensions[1] - image.height) // 2))
+        offset = ((dimensions[0] - image.width) // 2, (dimensions[1] - image.height) // 2)
+        canvas.alpha_composite(image, offset)
+    if scene.phone_screen:
+        screen = _open_image(Path(scene.phone_screen))
+        found = _green_screen(image) if source else None
+        if found:
+            mask, corners = found
+            # Warp a little past the detected edge so the grown mask never exposes green fringe.
+            cx, cy = sum(x for x, _ in corners) / 4, sum(y for _, y in corners) / 4
+            grown = [(x + (x - cx) * 0.03 + math.copysign(3, x - cx) + offset[0], y + (y - cy) * 0.03 + math.copysign(3, y - cy) + offset[1]) for x, y in corners]
+            warped = _perspective(screen, grown, dimensions)
+            placed = Image.new("L", dimensions, 0)
+            placed.paste(mask, offset)
+            canvas.paste(warped, (0, 0), ImageChops.multiply(placed, warped.getchannel("A")))
+        else:
+            phone, position = _drawn_phone(screen, dimensions)
+            canvas.alpha_composite(phone, position)
     canvas.alpha_composite(overlay)
     return canvas.convert("RGB")
 
@@ -381,6 +507,10 @@ def render_project(project: StudioProject | dict, output_dir: str | Path) -> dic
             else:
                 _open_image(source).close()
             record.update({"name": source.name, "sha256": _sha256(source)})
+        if scene.phone_screen is not None:
+            screen = _local_file(scene.phone_screen, IMAGE_EXTENSIONS, f"Scene {index} phone screen")
+            _open_image(screen).close()
+            record["phone_screen"] = {"name": screen.name, "sha256": _sha256(screen)}
         sources.append(source)
         source_records.append(record)
         try:
@@ -430,6 +560,8 @@ def render_project(project: StudioProject | dict, output_dir: str | Path) -> dic
         for scene, record in zip(portable_project["scenes"], source_records):
             if scene["source"]:
                 scene["source"] = {"name": record["name"], "sha256": record["sha256"]}
+            if scene["phone_screen"]:
+                scene["phone_screen"] = record["phone_screen"]
         for role, field in (("narration", "narration_file"), ("music", "music_file")):
             portable_project[field] = audio_records.get(role)
         manifest = {

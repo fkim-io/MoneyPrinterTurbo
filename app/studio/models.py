@@ -30,13 +30,15 @@ class StudioScene(BaseModel):
     source_kind: Literal["image", "video", "color"] = "color"
     headline: str = Field(default="", max_length=1000)
     body: str = Field(default="", max_length=4000)
-    layout: Literal["boxed", "paragraph", "top", "minimal"] = "boxed"
+    layout: Literal["boxed", "paragraph", "top", "minimal", "native"] = "boxed"
     duration: float = Field(default=4.0, ge=0.2, le=60, allow_inf_nan=False)
     source_start: float = Field(default=0.0, ge=0, le=86400, allow_inf_nan=False)
     preserve_audio: bool = False
     text_position: Literal["top", "center", "bottom"] = "center"
+    # A real app screenshot composited onto a phone: into a green screen in the source photo when present, else a drawn phone.
+    phone_screen: str | None = None
 
-    _source_is_local = field_validator("source")(_local_reference)
+    _source_is_local = field_validator("source", "phone_screen")(_local_reference)
 
     @field_validator("headline", "body")
     @classmethod
@@ -54,6 +56,8 @@ class StudioScene(BaseModel):
             raise ValueError(f"{self.source_kind} scenes require a local source file")
         if self.source_kind != "video" and (self.source_start or self.preserve_audio):
             raise ValueError("source_start and preserve_audio apply only to video scenes")
+        if self.source_kind == "video" and self.phone_screen is not None:
+            raise ValueError("phone_screen applies only to image or color scenes")
         return self
 
 

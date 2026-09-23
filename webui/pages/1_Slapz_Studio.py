@@ -48,7 +48,7 @@ FORMATS = {
     "reel": "Demo / presenter Reel",
 }
 SIZES = {"portrait": "9:16 · 1080 × 1920", "feed": "4:5 · 1080 × 1350", "square": "1:1 · 1080 × 1080"}
-LAYOUTS = {"boxed": "Headline boxes", "paragraph": "Paragraph overlay", "top": "Top hook", "minimal": "Minimal caption"}
+LAYOUTS = {"boxed": "Headline boxes", "paragraph": "Paragraph overlay", "top": "Top hook", "minimal": "Minimal caption", "native": "TikTok native text"}
 
 
 def new_scene(**overrides):

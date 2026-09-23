@@ -245,3 +245,53 @@ def test_invalid_ranges_media_and_output_collision_fail_clearly(tmp_path, presen
 def test_schema_rejects_ambiguous_or_unbounded_requests(project):
     with pytest.raises(ValidationError):
         StudioProject.model_validate(project)
+
+
+def test_native_text_is_black_on_white_boxes_inside_the_photo_mode_safe_zone(tmp_path):
+    result = render_project({"format": "image", "size": "portrait", "scenes": [{"headline": "things i wish i knew", "body": "before i started writing again", "layout": "native"}]}, tmp_path / "native")
+    with Image.open(tmp_path / "native" / result["assets"][0]["path"]) as image:
+        pixels = image.convert("RGB").load()
+        width, height = image.size
+        white = [(x, y) for x in range(width) for y in range(height) if min(pixels[x, y]) > 225]
+        dark_in_box = [(x, y) for x in range(width) for y in range(height) if max(pixels[x, y]) < 40 and any(min(pixels[x + dx, y]) > 225 for dx in (-3, 3) if 0 <= x + dx < width)]
+        assert white and dark_in_box  # boxes exist and carry dark ink
+        xs, ys = [x for x, _ in white], [y for _, y in white]
+        assert min(ys) >= height * 0.13 - 1 and max(ys) <= height * 0.78 + 1  # clear of tabs and caption
+        assert max(xs) <= width * 0.86  # clear of the action rail
+
+
+def test_phone_screen_is_drawn_on_a_phone_when_the_photo_has_no_green_screen(tmp_path):
+    screen = tmp_path / "private-screen.png"
+    Image.new("RGB", (120, 260), (255, 0, 0)).save(screen)
+    result = render_project({"format": "carousel", "size": "portrait", "scenes": [{"phone_screen": str(screen)}]}, tmp_path / "drawn")
+    with Image.open(tmp_path / "drawn" / "scene-01.jpg") as image:
+        red, green, blue = image.convert("RGB").getpixel((90, round(320 * 0.62)))
+        assert red > 200 and green < 60 and blue < 60
+    assert result["sources"][0]["phone_screen"]["sha256"] == hashlib.sha256(screen.read_bytes()).hexdigest()
+    assert result["sources"][0]["phone_screen"]["name"] == "private-screen.png"
+    assert str(tmp_path) not in json.dumps(result)
+
+
+def test_phone_screen_is_warped_into_a_green_screen_and_leaves_no_green(tmp_path):
+    photo = tmp_path / "hand.png"
+    base = Image.new("RGB", (180, 320), (90, 70, 60))
+    from PIL import ImageDraw
+    ImageDraw.Draw(base).polygon([(60, 90), (125, 100), (118, 230), (52, 220)], fill=(0, 255, 0))
+    base.save(photo)
+    screen = tmp_path / "screen.png"
+    Image.new("RGB", (120, 260), (0, 0, 255)).save(screen)
+    render_project({"format": "carousel", "size": "portrait", "scenes": [{"source_kind": "image", "source": str(photo), "phone_screen": str(screen)}]}, tmp_path / "green")
+    with Image.open(tmp_path / "green" / "scene-01.jpg") as image:
+        rgb = image.convert("RGB")
+        assert rgb.getpixel((88, 160))[2] > 200  # centre of the quad now shows the screenshot
+        assert rgb.getpixel((20, 20))[0] > 70  # photo outside the screen untouched
+        assert not any(g > 150 and g > r + 60 and g > b + 60 for r, g, b in rgb.getdata())
+
+
+def test_phone_screen_is_local_and_only_for_still_scenes(tmp_path):
+    with pytest.raises(ValidationError, match="URL"):
+        StudioProject.model_validate({"scenes": [{"phone_screen": "https://example.com/a.png"}]})
+    with pytest.raises(ValidationError, match="phone_screen"):
+        StudioProject.model_validate({"format": "reel", "scenes": [{"source_kind": "video", "source": "/tmp/a.mp4", "phone_screen": "/tmp/a.png"}]})
+    with pytest.raises(RenderError, match="phone screen"):
+        render_project({"format": "image", "scenes": [{"phone_screen": str(tmp_path / "missing.png")}]}, tmp_path / "missing")
