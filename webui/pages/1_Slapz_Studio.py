@@ -405,6 +405,93 @@ def project_tab():
             show_error(error)
 
 
+def restore_editor(project):
+    validated = StudioProject.model_validate(project).model_dump(mode="json")
+    validated["scenes"] = [new_scene(**scene) for scene in validated["scenes"]]
+    st.session_state.slapz_editor = validated
+    st.session_state.slapz_revision += 1
+    st.session_state.pop("slapz_result", None)
+    st.rerun()
+
+
+def recipes_tab():
+    from app.studio.recipes import bind_template, list_recipes, load_recipe, save_recipe, templates
+
+    library = ROOT / "storage" / "studio" / "recipes"
+    st.subheader("Start from a recipe")
+    st.write("Reuse a Slapz structure, or reopen a saved draft with its original media, text and timing.")
+    choices = {item["id"]: item for item in templates()}
+    selected = st.selectbox("Recipe template", list(choices), format_func=lambda key: choices[key]["name"])
+    template = choices[selected]
+    st.caption(template["description"])
+    uploads = st.file_uploader(
+        "Recipe media", type=["png", "jpg", "jpeg", "webp", "mp4", "mov", "webm", "m4v", "mp3", "wav", "m4a", "aac", "ogg", "flac"],
+        accept_multiple_files=True, key=f"recipe_upload_{REVISION}",
+    )
+    for upload in uploads:
+        try:
+            add_upload(upload)
+        except ValueError as error:
+            show_error(error)
+    audio_mode = selected == "music-choice" and st.radio(
+        "Beat sources", ["Audio excerpts", "Existing video clips"], horizontal=True, key="recipe_beat_mode",
+    ) == "Audio excerpts"
+    if audio_mode:
+        st.caption("Select three audio files and their exact excerpts. Preparation runs locally with FFmpeg, retaining the original audio and a waveform clip. Text stays above the waveform.")
+    bindings = {}
+    excerpts = []
+    for slot in template["slots"]:
+        kinds = ["audio"] if audio_mode else slot["kinds"]
+        eligible = {key: asset for key, asset in ASSETS.items() if asset["kind"] in kinds}
+        bindings[slot["id"]] = st.selectbox(
+            slot["label"].replace(" clip", " audio") if audio_mode else slot["label"], [None, *eligible],
+            format_func=lambda key, media=eligible: "Choose uploaded media" if key is None else media[key]["name"],
+            key=f"recipe_{selected}_{slot['id']}_{audio_mode}_{REVISION}",
+        )
+        if audio_mode:
+            columns = st.columns(2)
+            start = columns[0].number_input(f"{slot['label'].replace(' clip', '')} start (seconds)", min_value=0.0, max_value=86400.0, value=0.0, step=0.5, key=f"recipe_start_{slot['id']}_{REVISION}")
+            duration = columns[1].number_input(f"{slot['label'].replace(' clip', '')} duration (seconds)", min_value=0.5, max_value=15.0, value=4.0, step=0.5, key=f"recipe_duration_{slot['id']}_{REVISION}")
+            excerpts.append({"asset_id": bindings[slot["id"]], "source_start": start, "duration": duration})
+    st.caption("Loading replaces the current editor. Save your current project first. No generation or upload to a provider occurs.")
+    action = "Prepare audio excerpts and use recipe" if audio_mode else "Use this recipe"
+    if st.button(action, disabled=not all(bindings.values())):
+        try:
+            if audio_mode:
+                from app.studio.audio_recipe import prepare_audio_choice
+
+                with st.spinner("Preparing three waveform clips locally…"):
+                    project, prepared = prepare_audio_choice(excerpts, ASSETS, WORKSPACE / "prepared", source_root=ROOT / "storage" / "studio")
+                ASSETS.update(prepared)
+                restore_editor(project)
+            else:
+                restore_editor(bind_template(selected, bindings, ASSETS))
+        except (ValueError, OSError) as error:
+            show_error(error)
+    st.divider()
+    st.subheader("Your saved recipes")
+    st.caption("Private local storage keeps exact copies of the selected source files. Each save creates a new version; back up storage/studio/recipes to retain them.")
+    name = st.text_input("Recipe name", PROJECT["title"], key=f"recipe_name_{REVISION}")
+    if st.button("Save current project as recipe"):
+        try:
+            saved = save_recipe(name, snapshot(), ASSETS, library, source_root=ROOT / "storage" / "studio")
+            st.success(f"Saved {saved['name']}. It can be reopened after restarting the editor.")
+        except (ValueError, OSError) as error:
+            show_error(error)
+    try:
+        saved = {item["id"]: item for item in list_recipes(library)}
+        if saved:
+            choice = st.selectbox("Saved recipe", list(saved), format_func=lambda key: f"{saved[key]['name']} · {saved[key]['created_at'][:19]}")
+            if st.button("Load saved recipe"):
+                bound, assets = load_recipe(choice, library, WORKSPACE / "uploads")
+                ASSETS.update(assets)
+                restore_editor(bound)
+        else:
+            st.info("Save a project here to keep its media and reopen it without re-uploading.")
+    except (ValueError, OSError) as error:
+        show_error(error)
+
+
 def generation_tab():
     from app.studio.providers import ProviderError, ReplicateProvider, load_catalog, plan_generation
 
@@ -412,7 +499,7 @@ def generation_tab():
     st.write("Create an image, supporting video, presenter clip or voiceover, then add it to your scene library.")
     catalog = load_catalog()["models"]
     models = {model["id"]: model for model in catalog}
-    selected = st.selectbox("Replicate model", list(models), format_func=lambda model_id: models[model_id]["name"])
+    selected = st.selectbox("Replicate model", list(models), index=list(models).index("google/nano-banana-pro"), format_func=lambda model_id: models[model_id]["name"])
     model = models[selected]
     st.caption(model["description"])
     if model.get("provenance"):
@@ -522,9 +609,11 @@ def generation_tab():
 st.markdown('<div class="studio-label">SLAPZ / CONTENT STUDIO</div>', unsafe_allow_html=True)
 st.title("Make the next post.")
 st.markdown('<div class="studio-deck">Build photo carousels, slideshow videos and app demos in one place. Every export starts as a draft you can review.</div>', unsafe_allow_html=True)
-create, generate, saved = st.tabs(["Create", "Replicate assets", "Save / import"])
+create, recipes, generate, saved = st.tabs(["Create", "Recipes", "Replicate assets", "Save / import"])
 with create:
     create_tab()
+with recipes:
+    recipes_tab()
 with generate:
     generation_tab()
 with saved:

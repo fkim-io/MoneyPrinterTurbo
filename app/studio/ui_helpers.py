@@ -6,6 +6,8 @@ from copy import deepcopy
 from hashlib import sha256
 from io import BytesIO
 import json
+import math
+import re
 from pathlib import Path
 import zipfile
 
@@ -55,18 +57,50 @@ def _references(project: dict):
             yield project, key
 
 
+def asset_derivation(asset: dict, assets: dict[str, dict]) -> dict | None:
+    """One audio dependency per waveform; paths and nested derivations are forbidden."""
+    value = asset.get("derivation")
+    if value is None:
+        return None
+    keys = {"kind", "source_asset_id", "source_start", "requested_duration", "duration", "fps"}
+    if not isinstance(value, dict) or set(value) != keys or value.get("kind") != "audio-waveform/v1" or asset.get("kind") != "video":
+        raise ValueError("Invalid audio waveform derivation.")
+    source_id = value.get("source_asset_id")
+    if not isinstance(source_id, str) or not re.fullmatch(r"[0-9a-f]{64}\.(?:mp3|wav|m4a|aac|ogg|flac)", source_id):
+        raise ValueError("Waveform dependencies must use uploaded audio asset IDs.")
+    source = assets.get(source_id)
+    if source is None or source.get("kind") != "audio" or source.get("derivation") is not None:
+        raise ValueError("The waveform's original audio is missing or invalid. Re-upload it first.")
+    for key, low, high in (("source_start", 0, 86400), ("requested_duration", 0.5, 15), ("duration", 0.5, 15)):
+        number = value.get(key)
+        if isinstance(number, bool) or not isinstance(number, (int, float)) or not math.isfinite(number) or not low <= number <= high:
+            raise ValueError("Invalid audio waveform excerpt range.")
+    if value.get("fps") != 30 or abs(value["duration"] - round(value["requested_duration"] * 30) / 30) > 1e-9:
+        raise ValueError("Invalid audio waveform frame duration.")
+    return deepcopy(value)
+
+
 def export_project(project: dict, assets: dict[str, dict]) -> bytes:
     """Export reusable asset IDs, never local server file paths."""
     portable = deepcopy(project)
     by_path = {asset["path"]: asset for asset in assets.values()}
     used = {}
+
+    def include(asset):
+        saved = {field: asset[field] for field in ("id", "name", "kind", "sha256")}
+        saved["generated"] = bool(asset.get("generated"))
+        derivation = asset_derivation(asset, assets)
+        if derivation:
+            saved["derivation"] = derivation
+            include(assets[derivation["source_asset_id"]])
+        used[asset["id"]] = saved
+
     for container, key in _references(portable):
         asset = by_path.get(container[key])
         if asset is None:
             raise ValueError("A project asset is no longer available. Re-upload it first.")
         container[key] = "asset://" + asset["id"]
-        used[asset["id"]] = {field: asset[field] for field in ("id", "name", "kind", "sha256")}
-        used[asset["id"]]["generated"] = bool(asset.get("generated"))
+        include(asset)
     return json.dumps(
         {"schema": PROJECT_FILE_SCHEMA, "project": portable, "assets": list(used.values())},
         ensure_ascii=False,
@@ -95,6 +129,24 @@ def import_project(data: bytes, assets: dict[str, dict]) -> dict:
         raise ValueError("Project asset metadata must be a list of objects.")
     metadata = {item.get("id"): item for item in saved_assets if isinstance(item.get("id"), str)}
     generated = set()
+    derivations = {}
+
+    def metadata_for(asset):
+        saved = metadata.get(asset["id"], {})
+        derivation = asset_derivation(saved, metadata)
+        if derivation:
+            if saved.get("sha256") != asset["sha256"]:
+                raise ValueError("The waveform's uploaded clip does not match its saved metadata.")
+            source_id = derivation["source_asset_id"]
+            original = assets.get(source_id)
+            expected = metadata[source_id]
+            if original is None or original.get("kind") != "audio" or original.get("sha256") != expected.get("sha256"):
+                raise ValueError("Re-upload the waveform's original audio before importing this project.")
+            metadata_for(original)
+            derivations[asset["id"]] = derivation
+        if saved.get("generated") is True and saved.get("sha256") == asset["sha256"]:
+            generated.add(asset["id"])
+
     for container, key in _references(project):
         reference = container[key]
         if not isinstance(reference, str) or not reference.startswith("asset://"):
@@ -105,12 +157,12 @@ def import_project(data: bytes, assets: dict[str, dict]) -> dict:
         expected = "audio" if key != "source" else container.get("source_kind")
         if asset["kind"] != expected:
             raise ValueError("A project's media reference has the wrong media type.")
-        saved = metadata.get(asset["id"], {})
-        if saved.get("generated") is True and saved.get("sha256") == asset["sha256"]:
-            generated.add(asset["id"])
+        metadata_for(asset)
         container[key] = asset["path"]
     for asset_id in generated:
         assets[asset_id]["generated"] = True
+    for asset_id, derivation in derivations.items():
+        assets[asset_id]["derivation"] = derivation
     return project
 
 

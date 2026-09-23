@@ -357,3 +357,20 @@ def test_provider_urls_are_never_followed_for_polling(provider):
     provider._opener = Opener([prediction("processing")])
     provider.poll(job["job_id"])
     assert provider._opener.calls[0].full_url == "https://api.replicate.com/v1/predictions/prediction123"
+
+
+def test_nano_banana_pro_uses_reviewed_inputs_and_never_silent_fallback():
+    model = next(item for item in load_catalog()["models"] if item["id"] == "google/nano-banana-pro")
+    inputs = copy.deepcopy(model["example_inputs"])
+    inputs["image_input"] = ["https://media.replicate.delivery/reference.jpg"]
+    planned = plan_generation(model["id"], inputs, "0.15")
+    assert planned["inputs"]["allow_fallback_model"] is False
+    assert "safety_filter_level" not in planned["inputs"]
+    for unsafe in ["/private/reference.jpg", "http://example.com/ref.jpg", "https://example.com/ref.jpg?token=hidden"]:
+        with pytest.raises(ProviderError):
+            plan_generation(model["id"], {**inputs, "image_input": [unsafe]}, "0.15")
+    with pytest.raises(ProviderError, match="unsupported value"):
+        plan_generation(model["id"], {**inputs, "allow_fallback_model": True}, "0.15")
+    del inputs["allow_fallback_model"]
+    with pytest.raises(ProviderError, match="required fields"):
+        plan_generation(model["id"], inputs, "0.15")

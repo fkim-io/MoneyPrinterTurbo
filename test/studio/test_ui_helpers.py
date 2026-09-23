@@ -105,3 +105,22 @@ def test_download_bundle_contains_only_manifest_assets_with_portable_paths(tmp_p
         saved = json.loads(archive.read("manifest.json"))
         assert saved["assets"][0]["path"] == "scene-01.jpg"
     assert manifest["assets"][0]["path"] == str(image)
+
+
+@pytest.mark.parametrize("corruption", ["url", "nested", "range", "extra"])
+def test_waveform_derivation_cannot_add_paths_cycles_or_invalid_ranges(tmp_path, corruption):
+    original = store_upload(b"audio source", "beat.wav", tmp_path)
+    clip = store_upload(b"prepared video", "beat.mp4", tmp_path)
+    clip["derivation"] = {"kind": "audio-waveform/v1", "source_asset_id": original["id"], "source_start": 0, "requested_duration": 4, "duration": 4, "fps": 30}
+    assets = {original["id"]: original, clip["id"]: clip}
+    project = {"format": "reel", "scenes": [{"source_kind": "video", "source": clip["path"]}]}
+    if corruption == "url":
+        clip["derivation"]["source_asset_id"] = "https://example.com/beat.wav"
+    elif corruption == "nested":
+        original["derivation"] = clip["derivation"]
+    elif corruption == "range":
+        clip["derivation"]["source_start"] = float("nan")
+    else:
+        clip["derivation"]["path"] = "/etc/passwd"
+    with pytest.raises(ValueError):
+        export_project(project, assets)

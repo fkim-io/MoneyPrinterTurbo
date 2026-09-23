@@ -1,5 +1,5 @@
 {
-  "as_of": "2026-09-22",
+  "as_of": "2026-09-23",
   "notice": "Curated API input subsets, not price or output-quality guarantees. Review current provider pricing and rights before each paid experiment. Caller-declared spending reservations are not provider-enforced invoice limits.",
   "models": [
     {
@@ -237,6 +237,69 @@
         }
       },
       "schema_url": "https://replicate.com/black-forest-labs/flux-schnell/api/schema"
+    },
+    {
+      "id": "google/nano-banana-pro",
+      "name": "Nano Banana Pro \u00b7 preferred casting",
+      "role": "image",
+      "description": "Preferred Slapz casting direction. Generate or edit a portrait from an authorized HTTPS reference. This reviewed subset uses 1K, 9:16 JPEG; fallback is disabled so the requested model is retained.",
+      "source_url": "https://replicate.com/google/nano-banana-pro",
+      "schema_url": "https://replicate.com/google/nano-banana-pro/api/schema",
+      "provenance": "Google generated imagery can carry SynthID provenance. Existing marks in references may remain; no blanket watermark-free guarantee. Provider safety defaults are unchanged.",
+      "example_inputs": {
+        "prompt": "An ordinary front-camera phone selfie of a fictional adult wearing headphones, relaxed expression, soft window daylight, natural skin detail, casual framing, no text or logos.",
+        "image_input": [],
+        "aspect_ratio": "9:16",
+        "resolution": "1K",
+        "output_format": "jpg",
+        "allow_fallback_model": false
+      },
+      "input_schema": {
+        "type": "object",
+        "required": [
+          "prompt",
+          "allow_fallback_model"
+        ],
+        "properties": {
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000
+          },
+          "image_input": {
+            "type": "array",
+            "maxItems": 1,
+            "items": {
+              "type": "string",
+              "format": "https-url"
+            }
+          },
+          "aspect_ratio": {
+            "type": "string",
+            "enum": [
+              "9:16"
+            ]
+          },
+          "resolution": {
+            "type": "string",
+            "enum": [
+              "1K"
+            ]
+          },
+          "output_format": {
+            "type": "string",
+            "enum": [
+              "jpg"
+            ]
+          },
+          "allow_fallback_model": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          }
+        }
+      }
     }
   ]
 }
