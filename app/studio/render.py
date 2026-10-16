@@ -319,7 +319,8 @@ def _card_layout(scene: StudioScene, dimensions: tuple[int, int], style: Style, 
     width, height = dimensions
     left, top, right, bottom, rail_top, rail_right = _safe_area(dimensions, style.safe_zone)
     portrait = height / width >= 1.6
-    picture_top, picture_bottom = (round(height * 0.10), round(height * 0.80)) if portrait else (top, bottom)
+    # A phone may run lower than a photo: what matters on a screenshot is its top half, clear of the caption.
+    picture_top, picture_bottom = (round(height * 0.10), round(height * (0.90 if scene.phone_screen else 0.80))) if portrait else (top, bottom)
     overlay = Image.new("RGBA", dimensions, (0, 0, 0, 0))
     ink, soft = (style.ink, style.ink_soft) if scene.tone == "paper" else (style.paper, style.paper_soft)
     if not scene.headline and not scene.body:
@@ -527,7 +528,7 @@ def _drawn_phone(screen: Image.Image, dimensions: tuple[int, int], box: tuple[in
     width, height = dimensions
     phone_height = round(height * 0.5)
     if box is not None:
-        room = max(3, round(width * 0.016)) * 5
+        room = max(3, round(width * 0.016)) * 7
         phone_height = min(box[3] - box[1] - room, round((box[2] - box[0] - room) * screen.height / screen.width))
         if phone_height < 8:
             raise RenderError("No room for the phone in this card")
@@ -539,10 +540,12 @@ def _drawn_phone(screen: Image.Image, dimensions: tuple[int, int], box: tuple[in
     rounded = Image.new("L", screen.size, 0)
     ImageDraw.Draw(rounded).rounded_rectangle((0, 0, screen.width - 1, screen.height - 1), radius=radius, fill=255)
     layer.paste(screen, (bezel, bezel), rounded)
-    shadow = Image.new("RGBA", (layer.width + 8 * bezel, layer.height + 8 * bezel), (0, 0, 0, 0))
-    ImageDraw.Draw(shadow).rounded_rectangle((4 * bezel, 5 * bezel, 4 * bezel + layer.width, 5 * bezel + layer.height), radius=radius + bezel, fill=(0, 0, 0, 110))
+    # Room on every side for the blur, so the shadow fades out instead of ending at the layer's edge.
+    margin = 8 * bezel
+    shadow = Image.new("RGBA", (layer.width + 2 * margin, layer.height + 2 * margin), (0, 0, 0, 0))
+    ImageDraw.Draw(shadow).rounded_rectangle((margin, margin + bezel, margin + layer.width, margin + bezel + layer.height), radius=radius + bezel, fill=(0, 0, 0, 110))
     shadow = shadow.filter(ImageFilter.GaussianBlur(2 * bezel))
-    shadow.alpha_composite(layer, (4 * bezel, 4 * bezel))
+    shadow.alpha_composite(layer, (margin, margin))
     if box is not None:
         return shadow, ((box[0] + box[2] - shadow.width) // 2, (box[1] + box[3] - shadow.height) // 2)
     return shadow, ((width - shadow.width) // 2, round(height * 0.62) - shadow.height // 2)
