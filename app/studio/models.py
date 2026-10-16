@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from typing import Literal
 
@@ -30,15 +31,29 @@ class StudioScene(BaseModel):
     source_kind: Literal["image", "video", "color"] = "color"
     headline: str = Field(default="", max_length=1000)
     body: str = Field(default="", max_length=4000)
-    layout: Literal["boxed", "paragraph", "top", "minimal", "native"] = "boxed"
+    layout: Literal["boxed", "paragraph", "top", "minimal", "native", "card"] = "boxed"
     duration: float = Field(default=4.0, ge=0.2, le=60, allow_inf_nan=False)
     source_start: float = Field(default=0.0, ge=0, le=86400, allow_inf_nan=False)
     preserve_audio: bool = False
     text_position: Literal["top", "center", "bottom"] = "center"
     # A real app screenshot composited onto a phone: into a green screen in the source photo when present, else a drawn phone.
     phone_screen: str | None = None
+    # How an image source fills its frame. "contain" shows all of it; "cover" fills the frame and crops.
+    # zoom > 1 narrows to a detail around focus (x, y as fractions of the source), for close-ups.
+    fit: Literal["contain", "cover"] = "contain"
+    focus: tuple[float, float] = (0.5, 0.5)
+    zoom: float = Field(default=1.0, ge=1.0, le=8.0, allow_inf_nan=False)
+    # Card layout only: a light (paper) or dark (ink) ground under serif headline and sans body.
+    tone: Literal["paper", "ink"] = "paper"
 
     _source_is_local = field_validator("source", "phone_screen")(_local_reference)
+
+    @field_validator("focus")
+    @classmethod
+    def focus_inside_source(cls, value: tuple[float, float]) -> tuple[float, float]:
+        if not all(0.0 <= part <= 1.0 and math.isfinite(part) for part in value):
+            raise ValueError("focus must be two fractions between 0 and 1")
+        return value
 
     @field_validator("headline", "body")
     @classmethod
@@ -58,6 +73,10 @@ class StudioScene(BaseModel):
             raise ValueError("source_start and preserve_audio apply only to video scenes")
         if self.source_kind == "video" and self.phone_screen is not None:
             raise ValueError("phone_screen applies only to image or color scenes")
+        if self.source_kind != "image" and (self.fit != "contain" or self.zoom != 1.0 or tuple(self.focus) != (0.5, 0.5)):
+            raise ValueError("fit, focus and zoom apply only to image scenes")
+        if self.layout == "card" and self.source is not None and self.phone_screen is not None:
+            raise ValueError("a card shows either a picture or a phone screen, not both")
         return self
 
 
@@ -95,6 +114,12 @@ class StudioProject(BaseModel):
     music_file: str | None = None
     music_volume: float = Field(default=0.15, ge=0, le=1, allow_inf_nan=False)
     captions: list[StudioCaption] = Field(default_factory=list, max_length=100)
+    # "reference": Reference's paper-and-ink look with serif headlines (fonts from STUDIO_SERIF_FONT,
+    # STUDIO_SANS_FONT, STUDIO_SANS_BOLD_FONT, STUDIO_NATIVE_FONT). "default" keeps the Slapz look.
+    theme: Literal["default", "reference"] = "default"
+    # Where text may sit on a 9:16 still: TikTok photo mode's interface, or the stricter ad safe zone
+    # (clear of 240 px at the top, 660 px at the bottom and the right-hand rail on 1080x1920).
+    safe_zone: Literal["photo_mode", "tiktok_ads"] = "photo_mode"
 
     _audio_is_local = field_validator("narration_file", "music_file")(_local_reference)
 
