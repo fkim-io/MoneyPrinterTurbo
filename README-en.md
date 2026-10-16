@@ -1,3 +1,5 @@
+> **Slapz fork:** See [Slapz Studio](README-SLAPZ.md) for photo/text cards, carousels, slideshow and Reel exports, original-audio preservation, and a separately approved Replicate generation workflow. The upstream generator remains available below.
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸

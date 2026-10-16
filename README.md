@@ -1,3 +1,5 @@
+> **Slapz fork:** [Slapz Studio setup and usage](README-SLAPZ.md) — local cards, carousels, slideshows, Reels and optional Replicate generation.
+
 <div align="center">
 
 # MoneyPrinterTurbo 💸
